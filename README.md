@@ -9,6 +9,3 @@ The original course repository is [KodeKloud's Certified Kubernetes Administrato
 The website is planned for GitHub Pages at:
 https://elias-hr.github.io/cka-klodekloud/
 
-To deploy, set the repository's GitHub Pages source to **GitHub Actions** under **Settings → Pages → Build and deployment**. No personal access token is needed; the workflow uses its automatically provided `GITHUB_TOKEN`.
-
-After setup, updates pushed to `master` deploy automatically.
