@@ -2211,7 +2211,7 @@ function ring(pct, size=26, done=false){
 let openCh = null, curId = null;
 function renderSidebar(){
   const sb = $("#sidebar");
-  let h = `<div class="side-home"><a href="#home" class="${curId==='home'?'on':''}">Home</a><a href="#memo" class="${curId==='memo'?'on':''}">kubectl cheat sheet</a></div>`;
+  let h = `<div class="side-home"><a href="#home" class="${curId==='home'?'on':''}">Home</a><a href="#memo" class="${curId==='memo'?'on':''}">kubectl cheat sheet</a><a href="#speed-sheet" class="${curId==='speed-sheet'?'on':''}">CLI speed notes</a></div>`;
   C.chapters.forEach(ch => {
     const s = chStats(ch); const isOpen = openCh === ch.num;
     h += `<div class="chap"><button class="chap-head" data-ch="${ch.num}" aria-expanded="${isOpen}"><span class="chap-num">${ch.num}</span><span class="chap-title">${esc(ch.title)}</span>${ring(s.pct,26,s.done===s.total)}</button>`;
@@ -2303,7 +2303,7 @@ function renderHome(){
     <div class="kicker">Certified Kubernetes Administrator</div>
     <h1>The CKA course, <em>one diagram at a time</em></h1>
     <p>A summary of chapters 2 to 9 of the KodeKloud course: every concept with its code examples, animated diagrams that show how things work, lab solutions and a quiz per chapter.</p>
-    <div class="btns"><a class="btn primary" href="#${resume}">${g>0?'Resume':'Start'} the course</a><a class="btn ghost" href="#memo">kubectl cheat sheet</a></div>
+    <div class="btns"><a class="btn primary" href="#${resume}">${g>0?'Resume':'Start'} the course</a><a class="btn ghost" href="#memo">kubectl cheat sheet</a><a class="btn ghost" href="#speed-sheet">CLI speed notes</a></div>
     <div class="stats"><div class="stat"><b>${Math.round(g*100)}%</b><span>completed</span></div><div class="stat"><b>${nLessons}</b><span>lessons</span></div><div class="stat"><b>${nAnims}</b><span>animated diagrams</span></div><div class="stat"><b>${nCode}</b><span>code examples</span></div><div class="stat"><b>${nLabs}</b><span>lab solutions</span></div><div class="stat"><b>${nQ}</b><span>quiz questions</span></div></div>
   </div><div class="hero-art">${heroArt()}</div></section>
   <h2 class="section-title">Chapters</h2><div class="grid">`;
@@ -2394,6 +2394,133 @@ function renderMemo(){
   $$("#mf button").forEach(b => b.addEventListener("click", () => { $$("#mf button").forEach(x=>x.classList.remove("on")); b.classList.add("on"); draw(b.dataset.v); }));
 }
 
+function renderSpeedSheet(){
+  curId = "speed-sheet"; openCh = null;
+  const sections = [
+    {
+      title: "Set up a fast shell",
+      note: "Keep a short alias and a dry-run flag ready in an interactive Bash session. The flag prints a client-side manifest without creating the resource.",
+      blocks: [{lang:"bash", code:`alias k=kubectl
+export do='--dry-run=client -o yaml'
+
+# Optional: enable completion when bash-completion is installed
+source <(kubectl completion bash)
+complete -o default -F __start_kubectl k`}]
+    },
+    {
+      title: "Pin the namespace and context",
+      note: "Set the namespace once when a task is scoped to it, then confirm the active context before making changes. The namespace setting is saved in kubeconfig.",
+      blocks: [{lang:"bash", code:`k config get-contexts
+k config current-context
+k config set-context --current --namespace=finance
+k get pods`}]
+    },
+    {
+      title: "Generate manifests; edit only what the task needs",
+      note: "Imperative generators are quick ways to start a file. Review generated YAML before applying it, especially names, labels, ports, and restart policy.",
+      blocks: [{lang:"bash", code:`# Pod manifest
+k run web --image=nginx:1.27 $do > pod.yaml
+
+# Deployment manifest
+k create deployment web --image=nginx:1.27 --replicas=3 $do > deployment.yaml
+
+# Apply and verify
+k apply -f deployment.yaml
+k get deployment web`}]
+    },
+    {
+      title: "Change workloads and services",
+      note: "Use rollout commands to make and check Deployment changes; expose a workload when a Service is needed.",
+      blocks: [{lang:"bash", code:`k scale deployment/web --replicas=5
+k set image deployment/web nginx=nginx:1.28
+k rollout status deployment/web
+k rollout history deployment/web
+k rollout undo deployment/web
+
+k expose deployment/web --name=web-svc --port=80 --target-port=80
+k expose deployment/web --name=web-np --type=NodePort --port=80`}]
+    },
+    {
+      title: "Create an Ingress starter",
+      note: "The controller and ingress class must exist in the cluster. Check the requested host, path behavior, and backend service port.",
+      blocks: [{lang:"bash", code:`k create ingress web-ingress \\
+  --rule='app.example.com/api*=api-svc:8080' \\
+  --rule='app.example.com/*=web-svc:80' $do > ingress.yaml`}]
+    },
+    {
+      title: "ConfigMaps, Secrets, and permissions",
+      note: "Replace the sample Secret value with the task's value, and avoid printing Secret data in shared terminals or logs. Use the required namespace and service-account names for RBAC bindings.",
+      blocks: [{lang:"bash", code:`k create configmap app-config --from-literal=MODE=production
+k create configmap web-config --from-file=nginx.conf
+k create secret generic db-auth --from-literal=username=app --from-literal=password='REPLACE_ME'
+      k set env deployment/web --from=configmap/app-config
+
+      k create serviceaccount app-sa
+k create role pod-reader --verb=get,list,watch --resource=pods,pods/log
+k create rolebinding pod-reader-binding --role=pod-reader --serviceaccount=default:app-sa
+k auth can-i list pods --as=system:serviceaccount:default:app-sa`}]
+    },
+    {
+      title: "Inspect quickly with columns and JSONPath",
+      note: "These formats are useful when the default table hides a field you need to check.",
+      blocks: [{lang:"bash", code:`k get pods -A -o custom-columns='POD:.metadata.name,NODE:.spec.nodeName,PHASE:.status.phase'
+k get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\\t"}{.status.addresses[?(@.type=="InternalIP")].address}{"\\n"}{end}'
+k get events -A --sort-by=.metadata.creationTimestamp`}]
+    },
+    {
+      title: "Troubleshoot from broad to specific",
+      note: "Start with status and events, then inspect the object and its container logs. Use a temporary in-cluster client to test network reachability when appropriate.",
+      blocks: [{lang:"bash", code:`k get pods -A
+k describe pod POD_NAME
+k logs POD_NAME --all-containers --tail=100
+k logs POD_NAME -c CONTAINER_NAME --previous
+k top nodes
+k top pods -A --sort-by=cpu
+
+# Temporary network-debug shell; exits and removes the Pod when finished
+k run net-debug --rm -it --restart=Never --image=curlimages/curl -- sh`}]
+    },
+    {
+      title: "Remember the policy and storage shape",
+      note: "For longer YAML objects, generate a starter if possible or keep a known-good template nearby. Match storage class, access mode, selectors, and policy direction to the task.",
+      blocks: [
+        {lang:"yaml", code:`apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: app-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi`},
+        {lang:"yaml", code:`apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - protocol: TCP
+          port: 80`}
+      ]
+    }
+  ];
+  const blocks = sections.map((section, i) => `<section class="qcard prose"><h2>${String(i+1).padStart(2,"0")} · ${esc(section.title)}</h2><p>${esc(section.note)}</p>${section.blocks.map(block=>`<pre><code class="language-${block.lang}">${esc(block.code)}</code></pre>`).join("")}</section>`).join("");
+  setView(`<div class="wrap"><div class="crumb"><a href="#home">Home</a></div><header class="lesson-head"><h1>kubectl CLI speed notes</h1><div class="lmeta"><span>Exam-prep patterns for faster authoring, context checks, and troubleshooting</span></div></header><div class="admonition exam"><p class="admonition-title">Use deliberately</p><p>Commands and resource support vary by Kubernetes version and cluster setup. Verify the active context, follow the task's exact requirements, and inspect generated YAML before applying it.</p></div>${blocks}<p class="prose" style="font-size:13px;color:var(--muted)">Inspired by the <a href="https://gcloudcafe.com/blog/kubectl-oc-cli-speed-cheat-sheet/" target="_blank" rel="noopener">GCloudCafe kubectl/oc CLI speed cheat sheet</a>; reorganized and rewritten as an independent CKA reference.</p></div>`);
+  enhanceCode(main);
+  renderSidebar();
+}
+
 /* ---------- search ---------- */
 const norm = s => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
 const idx = flat.map(l => ({ l, t: norm(l.title), b: norm(l.text||"") }));
@@ -2436,6 +2563,7 @@ function route(){
   $("#sidebar")._scrolled = false;
   if (!h || h==="home" || h==="accueil") renderHome();
   else if (h==="memo") renderMemo();
+  else if (h==="speed-sheet") renderSpeedSheet();
   else if (h.startsWith("quiz-")) renderQuiz(h.slice(5));
   else if (byId[h]) renderLesson(h);
   else renderHome();
