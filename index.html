@@ -2398,125 +2398,261 @@ function renderSpeedSheet(){
   curId = "speed-sheet"; openCh = null;
   const sections = [
     {
-      title: "Set up a fast shell",
-      note: "Keep a short alias and a dry-run flag ready in an interactive Bash session. The flag prints a client-side manifest without creating the resource.",
-      blocks: [{lang:"bash", code:`alias k=kubectl
-export do='--dry-run=client -o yaml'
+      title: "Fast shell setup",
+      note: "Set up these shortcuts when the terminal session starts. Kubectl Bash completion is already enabled in the Linux Foundation terminal.",
+      blocks: [{lang:"bash", code:`# Main kubectl alias
+alias k=kubectl
 
-# Optional: enable completion when bash-completion is installed
-source <(kubectl completion bash)
-complete -o default -F __start_kubectl k`}]
+# Fast YAML generator shortcut
+export do="--dry-run=client -o yaml"`}]
     },
     {
-      title: "Pin the namespace and context",
-      note: "Set the namespace once when a task is scoped to it, then confirm the active context before making changes. The namespace setting is saved in kubeconfig.",
-      blocks: [{lang:"bash", code:`k config get-contexts
-k config current-context
+      title: "Namespace and context switching",
+      note: "When several tasks use the same namespace, switch the current context namespace rather than adding -n to every command.",
+      blocks: [{lang:"bash", code:`# Set default namespace for current context
 k config set-context --current --namespace=finance
-k get pods`}]
-    },
-    {
-      title: "Generate manifests; edit only what the task needs",
-      note: "Imperative generators are quick ways to start a file. Review generated YAML before applying it, especially names, labels, ports, and restart policy.",
-      blocks: [{lang:"bash", code:`# Pod manifest
-k run web --image=nginx:1.27 $do > pod.yaml
 
-# Deployment manifest
-k create deployment web --image=nginx:1.27 --replicas=3 $do > deployment.yaml
+# Verify current context and active namespace
+k config get-contexts
+k config current-context`}]
+    },
+    {
+      title: "Imperative YAML generators · Pods",
+      note: "Use $do (--dry-run=client -o yaml) to generate a starting manifest, then redirect it to a file or pipe it into kubectl apply.",
+      blocks: [{lang:"bash", code:`# Basic Nginx Pod
+k run nginx-pod --image=nginx $do > pod.yaml
 
-# Apply and verify
-k apply -f deployment.yaml
-k get deployment web`}]
-    },
-    {
-      title: "Change workloads and services",
-      note: "Use rollout commands to make and check Deployment changes; expose a workload when a Service is needed.",
-      blocks: [{lang:"bash", code:`k scale deployment/web --replicas=5
-k set image deployment/web nginx=nginx:1.28
-k rollout status deployment/web
-k rollout history deployment/web
-k rollout undo deployment/web
+# Pod with a custom command and arguments
+k run busybox-pod --image=busybox --restart=Never $do -- /bin/sh -c "sleep 3600" > pod.yaml
 
-k expose deployment/web --name=web-svc --port=80 --target-port=80
-k expose deployment/web --name=web-np --type=NodePort --port=80`}]
+# Pod with labels and an exposed container port
+k run web --image=httpd:alpine --port=80 --labels="tier=frontend,app=web" $do > web-pod.yaml`}]
     },
     {
-      title: "Create an Ingress starter",
-      note: "The controller and ingress class must exist in the cluster. Check the requested host, path behavior, and backend service port.",
-      blocks: [{lang:"bash", code:`k create ingress web-ingress \\
-  --rule='app.example.com/api*=api-svc:8080' \\
-  --rule='app.example.com/*=web-svc:80' $do > ingress.yaml`}]
-    },
-    {
-      title: "ConfigMaps, Secrets, and permissions",
-      note: "Replace the sample Secret value with the task's value, and avoid printing Secret data in shared terminals or logs. Use the required namespace and service-account names for RBAC bindings.",
-      blocks: [{lang:"bash", code:`k create configmap app-config --from-literal=MODE=production
-k create configmap web-config --from-file=nginx.conf
-k create secret generic db-auth --from-literal=username=app --from-literal=password='REPLACE_ME'
-      k set env deployment/web --from=configmap/app-config
+      title: "Deployments and scaling",
+      note: "Generate a Deployment manifest, scale the workload, and use rollout commands to track or revert an image update.",
+      blocks: [{lang:"bash", code:`# Create a Deployment with 3 replicas
+k create deployment web-deploy --image=nginx:1.25 --replicas=3 $do > deploy.yaml
 
-      k create serviceaccount app-sa
-k create role pod-reader --verb=get,list,watch --resource=pods,pods/log
-k create rolebinding pod-reader-binding --role=pod-reader --serviceaccount=default:app-sa
-k auth can-i list pods --as=system:serviceaccount:default:app-sa`}]
-    },
-    {
-      title: "Inspect quickly with columns and JSONPath",
-      note: "These formats are useful when the default table hides a field you need to check.",
-      blocks: [{lang:"bash", code:`k get pods -A -o custom-columns='POD:.metadata.name,NODE:.spec.nodeName,PHASE:.status.phase'
-k get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\\t"}{.status.addresses[?(@.type=="InternalIP")].address}{"\\n"}{end}'
-k get events -A --sort-by=.metadata.creationTimestamp`}]
-    },
-    {
-      title: "Troubleshoot from broad to specific",
-      note: "Start with status and events, then inspect the object and its container logs. Use a temporary in-cluster client to test network reachability when appropriate.",
-      blocks: [{lang:"bash", code:`k get pods -A
-k describe pod POD_NAME
-k logs POD_NAME --all-containers --tail=100
-k logs POD_NAME -c CONTAINER_NAME --previous
-k top nodes
-k top pods -A --sort-by=cpu
+# Scale the Deployment
+k scale deployment web-deploy --replicas=5
 
-# Temporary network-debug shell; exits and removes the Pod when finished
-k run net-debug --rm -it --restart=Never --image=curlimages/curl -- sh`}]
+# Update image and check rollout history
+k set image deployment/web-deploy nginx=nginx:1.26
+k rollout status deployment/web-deploy
+k rollout undo deployment/web-deploy`}]
     },
     {
-      title: "Remember the policy and storage shape",
-      note: "For longer YAML objects, generate a starter if possible or keep a known-good template nearby. Match storage class, access mode, selectors, and policy direction to the task.",
+      title: "Exposing Services",
+      note: "Create the required Service type and use the requested Service and target ports.",
+      blocks: [{lang:"bash", code:`# ClusterIP: port 80 to target port 8080
+k expose deployment web-deploy --port=80 --target-port=8080 --name=web-service
+
+# NodePort Service manifest
+k expose deployment web-deploy --type=NodePort --port=80 --target-port=80 --name=web-np $do > svc-nodeport.yaml
+
+# Create a ClusterIP Service directly
+k create service clusterip backend-svc --tcp=8080:8080 $do > svc.yaml`}]
+    },
+    {
+      title: "Ingress and Gateway API",
+      note: "Networking tasks can involve path routing, TLS termination, or Gateway API. Confirm the required routing resources and backend details.",
+      blocks: [
+        {lang:"bash", code:`# Create Ingress with host and path routing
+k create ingress web-ingress \\
+  --rule="app.example.com/api*=backend-svc:8080" \\
+  --rule="app.example.com/*=web-service:80" \\
+  $do > ingress.yaml
+
+# Ingress with a default backend
+k create ingress simple-ingress \\
+  --default-backend=fallback-svc:8080 \\
+  $do > ingress-default.yaml`},
+        {lang:"yaml", code:`apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: secure-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+      - secure.example.com
+    secretName: tls-secret
+  rules:
+  - host: secure.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80`},
+        {lang:"yaml", code:`# Gateway definition
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: prod-gateway
+spec:
+  gatewayClassName: eg-gateway-class
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 80
+---
+# HTTPRoute definition
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api-route
+spec:
+  parentRefs:
+  - name: prod-gateway
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /api
+    backendRefs:
+    - name: backend-svc
+      port: 8080`}
+      ]
+    },
+    {
+      title: "ConfigMaps, Secrets, and environment variables",
+      note: "Create configuration from literals, files, or an environment file, and inject a ConfigMap or Secret into a Deployment's environment.",
+      blocks: [{lang:"bash", code:`# ConfigMap from literal values
+k create configmap app-config --from-literal=DB_HOST=10.0.0.5 --from-literal=DB_PORT=5432
+
+# ConfigMap from a file
+k create configmap nginx-conf --from-file=nginx.conf
+
+# Secret from a literal value or environment file
+k create secret generic db-secret --from-literal=password=REPLACE_ME
+k create secret generic app-secret --from-env-file=.env
+
+# Inject a ConfigMap or Secret into a Deployment
+k set env deployment/web-deploy --from=configmap/app-config
+k set env deployment/web-deploy --from=secret/db-secret`}]
+    },
+    {
+      title: "PersistentVolumes and PersistentVolumeClaims",
+      note: "For Pod storage, create a claim and mount it into a container at the required path.",
       blocks: [
         {lang:"yaml", code:`apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: app-data
+  name: data-pvc
 spec:
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 2Gi`},
+      storage: 2Gi
+  storageClassName: standard`},
+        {lang:"yaml", code:`spec:
+  volumes:
+  - name: storage-vol
+    persistentVolumeClaim:
+      claimName: data-pvc
+  containers:
+  - name: app
+    image: nginx
+    volumeMounts:
+    - name: storage-vol
+      mountPath: /var/data`}
+      ]
+    },
+    {
+      title: "RBAC and ServiceAccounts",
+      note: "Practice the imperative commands for creating accounts, roles, and bindings, and verify permissions with auth can-i.",
+      blocks: [{lang:"bash", code:`# Create a ServiceAccount
+k create serviceaccount app-sa
+
+# Create a Role with specific resource access
+k create role pod-reader --verb=get,list,watch --resource=pods,pods/log
+
+# Bind Role to ServiceAccount in a namespace
+k create rolebinding read-pods-binding --role=pod-reader --serviceaccount=default:app-sa
+
+# Cluster-wide permissions
+k create clusterrole node-viewer --verb=get,list --resource=nodes
+k create clusterrolebinding view-nodes-binding --clusterrole=node-viewer --serviceaccount=default:app-sa
+
+# Check permissions
+k auth can-i create deployments --as=system:serviceaccount:default:app-sa
+k auth can-i delete pods -n production`}]
+    },
+    {
+      title: "NetworkPolicies",
+      note: "Use a default-deny ingress policy to isolate a namespace, then add an ingress rule for the specific source Pods and port that should be allowed.",
+      blocks: [
         {lang:"yaml", code:`apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-frontend
+  name: default-deny-ingress
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress`},
+        {lang:"yaml", code:`apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-to-backend
 spec:
   podSelector:
     matchLabels:
       app: backend
-  policyTypes:
-    - Ingress
   ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: frontend
-      ports:
-        - protocol: TCP
-          port: 80`}
+  - from:
+    - podSelector:
+        matchLabels:
+          app: frontend
+    ports:
+    - protocol: TCP
+      port: 80`}
       ]
+    },
+    {
+      title: "Troubleshooting, JSONPath, and filtering",
+      note: "Use targeted output and runtime diagnostics to inspect cluster state, debug workloads, and check recent events.",
+      blocks: [{lang:"bash", code:`# Get Internal IPs of all Worker Nodes
+k get nodes -o jsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}'
+
+# Extract Pod names and their Node placements
+k get pods -o custom-columns=POD:.metadata.name,NODE:.spec.nodeName,STATUS:.status.phase
+
+# Decode Secret data
+k get secret db-secret -o jsonpath='{.data.password}' | base64 -d
+
+# Run a temporary debugging container inside the cluster network
+k run net-debug --rm -i --tty --image=curlimages/curl -- /bin/sh
+
+# Stream logs with timestamps and limit lines
+k logs -f deployment/web-deploy --tail=50 --timestamps
+
+# View resource usage across all namespaces
+k top nodes
+k top pods -A --sort-by=cpu
+k top pods -A --sort-by=memory
+
+# Inspect events sorted by creation time
+k get events -A --sort-by='.metadata.creationTimestamp'`}]
+    },
+    {
+      title: "Exam-day checklist",
+      note: "Use this short checklist to keep the key time-saving habits in mind during practice and the exam.",
+      blocks: [{lang:"text", code:`1. Set alias k=kubectl and export do="--dry-run=client -o yaml".
+2. Set the current context namespace for multi-step questions in one namespace.
+3. Generate YAML with $do > file.yaml instead of writing large manifests from scratch.
+4. Validate changes with k get <resource> or test network endpoints with a temporary curlimages/curl Pod.`}]
     }
   ];
-  const blocks = sections.map((section, i) => `<section class="qcard prose"><h2>${String(i+1).padStart(2,"0")} · ${esc(section.title)}</h2><p>${esc(section.note)}</p>${section.blocks.map(block=>`<pre><code class="language-${block.lang}">${esc(block.code)}</code></pre>`).join("")}</section>`).join("");
-  setView(`<div class="wrap"><div class="crumb"><a href="#home">Home</a></div><header class="lesson-head"><h1>kubectl CLI speed notes</h1><div class="lmeta"><span>Exam-prep patterns for faster authoring, context checks, and troubleshooting</span></div></header><div class="admonition exam"><p class="admonition-title">Use deliberately</p><p>Commands and resource support vary by Kubernetes version and cluster setup. Verify the active context, follow the task's exact requirements, and inspect generated YAML before applying it.</p></div>${blocks}<p class="prose" style="font-size:13px;color:var(--muted)">Inspired by the <a href="https://gcloudcafe.com/blog/kubectl-oc-cli-speed-cheat-sheet/" target="_blank" rel="noopener">GCloudCafe kubectl/oc CLI speed cheat sheet</a>; reorganized and rewritten as an independent CKA reference.</p></div>`);
+  const blocks = sections.map((section, i) => `<section class="qcard prose"><h2>${i+1}. ${esc(section.title)}</h2><p>${esc(section.note)}</p>${section.blocks.map(block=>`<pre><code class="language-${block.lang}">${esc(block.code)}</code></pre>`).join("")}</section>`).join("");
+  setView(`<div class="wrap"><div class="crumb"><a href="#home">Home</a></div><header class="lesson-head"><h1>kubectl CLI speed cheat sheet</h1><div class="lmeta"><span>CKA exam tips, kubectl commands, and YAML examples</span></div></header>${blocks}<p class="prose" style="font-size:13px;color:var(--muted)">Reference: <a href="https://gcloudcafe.com/blog/kubectl-oc-cli-speed-cheat-sheet/" target="_blank" rel="noopener">GCloudCafe kubectl/oc CLI speed cheat sheet</a>.</p></div>`);
   enhanceCode(main);
   renderSidebar();
 }
